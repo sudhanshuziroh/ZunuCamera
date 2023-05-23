@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Zunu Camera</string>
+    <string name="take_photo">Take Photo</string>
+    <string name="start_capture">Start Capture</string>
+    <string name="stop_capture">Stop Capture</string>
+    <string name="zoom_5x">5X</string>
+    <string name="zoom_2x">2X</string>
+    <string name="zoom_1x">1X</string>
+    <string name="recording_time_initial">00:00:00</string>
+</resources>
