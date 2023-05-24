@@ -67,6 +67,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
+        viewModel.clearFiles(this)
         initUI()
         setClickListeners()
         observeEvents()
@@ -140,7 +141,7 @@ class MainActivity : AppCompatActivity() {
         if (mode == CameraMode.PHOTO) {
             binding.buttonPhotos.setBackgroundResource(R.drawable.selected_mode_background)
             binding.buttonVideo.setBackgroundResource(R.drawable.unselected_mode_background)
-            binding.buttonPhotos.setTextColor(Color.BLACK)
+            binding.buttonPhotos.setTextColor(Color.WHITE)
             binding.buttonVideo.setTextColor(Color.WHITE)
             binding.imageCaptureButton.setImageResource(R.drawable.shutter_icon_selector)
             binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_auto)
@@ -148,7 +149,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             binding.buttonPhotos.setBackgroundResource(R.drawable.unselected_mode_background)
             binding.buttonVideo.setBackgroundResource(R.drawable.selected_mode_background)
-            binding.buttonVideo.setTextColor(Color.BLACK)
+            binding.buttonVideo.setTextColor(Color.WHITE)
             binding.buttonPhotos.setTextColor(Color.WHITE)
             binding.imageCaptureButton.setImageResource(R.drawable.ic_video_mode)
             binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_off)
@@ -470,7 +471,6 @@ class MainActivity : AppCompatActivity() {
                         binding.imageViewPreview.setImageBitmap(bitmap)
                     }
                 }
-
             }
         }
     }
