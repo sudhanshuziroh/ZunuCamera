@@ -95,6 +95,7 @@ class MainActivity : AppCompatActivity() {
                 captureVideo()
             }
         }
+
         binding.buttonPhotos.setOnClickListener {
             viewModel.setCameraMode(CameraMode.PHOTO)
         }
@@ -108,21 +109,23 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.imageViewPreview.setOnClickListener {
-            try {
-                binding.lottieAnimation2.visibility = View.VISIBLE
-                val intent = Intent("com.ziroh.EVENT_ATTACHMENT_REQUEST")
-                intent.putExtra(
-                    "com.ziroh.zunudrive.OpenPage",
-                    "zunuGallery"
-                )
-                startActivity(intent)
-                lifecycleScope.launch {
-                    delay(3.seconds)
+            if (selectedCameraMode == CameraMode.PHOTO) {
+                try {
+                    binding.lottieAnimation2.visibility = View.VISIBLE
+                    val intent = Intent("com.ziroh.EVENT_ATTACHMENT_REQUEST")
+                    intent.putExtra(
+                        "com.ziroh.zunudrive.OpenPage",
+                        "zunuGallery"
+                    )
+                    startActivity(intent)
+                    lifecycleScope.launch {
+                        delay(3.seconds)
+                        binding.lottieAnimation2.visibility = View.GONE
+                    }
+                } catch (e: Exception) {
                     binding.lottieAnimation2.visibility = View.GONE
+                    Toast.makeText(this, "Zunu Drive not installed", Toast.LENGTH_SHORT).show()
                 }
-            }catch (e:Exception){
-                binding.lottieAnimation2.visibility = View.GONE
-                Toast.makeText(this, "Zunu Drive not installed", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -146,6 +149,7 @@ class MainActivity : AppCompatActivity() {
             binding.imageCaptureButton.setImageResource(R.drawable.shutter_icon_selector)
             binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_auto)
             imageCapture?.camera?.cameraControl?.enableTorch(false)
+            binding.imageViewPreview.visibility = View.VISIBLE
         } else {
             binding.buttonPhotos.setBackgroundResource(R.drawable.unselected_mode_background)
             binding.buttonVideo.setBackgroundResource(R.drawable.selected_mode_background)
@@ -153,6 +157,7 @@ class MainActivity : AppCompatActivity() {
             binding.buttonPhotos.setTextColor(Color.WHITE)
             binding.imageCaptureButton.setImageResource(R.drawable.ic_video_mode)
             binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_off)
+            binding.imageViewPreview.visibility = View.GONE
         }
     }
 
@@ -236,8 +241,8 @@ class MainActivity : AppCompatActivity() {
                                 file.path,
                                 MediaStore.Images.Thumbnails.MINI_KIND
                             )
-                            binding.imageViewPreview.visibility = View.VISIBLE
-                            binding.imageViewPreview.setImageBitmap(bitmap)
+//                            binding.imageViewPreview.visibility = View.VISIBLE
+//                            binding.imageViewPreview.setImageBitmap(bitmap)
                         } else {
                             recording?.close()
                             recording = null
@@ -263,10 +268,12 @@ class MainActivity : AppCompatActivity() {
                     flashMode = ImageCapture.FLASH_MODE_ON
                     binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_on)
                 }
+
                 ImageCapture.FLASH_MODE_ON -> {
                     flashMode = ImageCapture.FLASH_MODE_OFF
                     binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_off)
                 }
+
                 else -> {
                     flashMode = ImageCapture.FLASH_MODE_AUTO
                     binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_auto)
@@ -404,7 +411,6 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-
     private fun initUI() {
         setPreviewUI()
         timerManager = TimerManager()
@@ -424,19 +430,19 @@ class MainActivity : AppCompatActivity() {
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
 
-    private fun setVideoRecordingUI(isRecording: Boolean){
+    private fun setVideoRecordingUI(isRecording: Boolean) {
         this.isRecording = isRecording
         binding.timerLayout.isVisible = isRecording
         binding.imageViewCameraSwitch.isEnabled = !isRecording
         binding.constraintLayoutCameraMode.isEnabled = !isRecording
         binding.imageViewPreview.isVisible = !isRecording
 
-        if(isRecording){
+        if (isRecording) {
             binding.imageCaptureButton.setImageResource(R.drawable.video_stop)
             timerManager.startTimer()
             binding.imageViewCameraSwitch.alpha = 0f
             binding.constraintLayoutCameraMode.visibility = View.INVISIBLE
-        }else{
+        } else {
             binding.imageCaptureButton.setImageResource(R.drawable.ic_video_mode)
             timerManager.stopTimer()
             binding.imageViewCameraSwitch.alpha = 1f
@@ -457,14 +463,14 @@ class MainActivity : AppCompatActivity() {
                 withContext(Dispatchers.Main) { binding.imageViewPreview.visibility = View.GONE }
             } else {
                 val lastClickedPreview = cameraPreviewFiles[cameraPreviewFiles.size - 1]
-                if(lastClickedPreview.name.endsWith(".mp4")){
+                if (lastClickedPreview.name.endsWith(".mp4")) {
                     val bitmap = ThumbnailUtils.createVideoThumbnail(
                         lastClickedPreview.absolutePath,
                         MediaStore.Images.Thumbnails.MINI_KIND
                     )
                     binding.imageViewPreview.visibility = View.VISIBLE
                     binding.imageViewPreview.setImageBitmap(bitmap)
-                }else{
+                } else {
                     val bitmap = BitmapFactory.decodeFile(lastClickedPreview.absolutePath)
                     withContext(Dispatchers.Main) {
                         binding.imageViewPreview.visibility = View.VISIBLE
