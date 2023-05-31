@@ -435,7 +435,10 @@ class MainActivity : AppCompatActivity() {
         binding.timerLayout.isVisible = isRecording
         binding.imageViewCameraSwitch.isEnabled = !isRecording
         binding.constraintLayoutCameraMode.isEnabled = !isRecording
-        binding.imageViewPreview.isVisible = !isRecording
+
+        if(selectedCameraMode == CameraMode.PHOTO) {
+            binding.imageViewPreview.isVisible = !isRecording
+        }
 
         if (isRecording) {
             binding.imageCaptureButton.setImageResource(R.drawable.video_stop)

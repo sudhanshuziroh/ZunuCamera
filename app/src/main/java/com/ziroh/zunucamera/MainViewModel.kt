@@ -17,9 +17,6 @@ class MainViewModel : ViewModel() {
         _selectedCameraMode.value = mode
     }
 
-    private val _isRecording = MutableStateFlow(false)
-    val isRecording: StateFlow<Boolean> = _isRecording
-
     fun clearFiles(context: Context) {
         viewModelScope.launch(Dispatchers.IO) {
             context.filesDir.listFiles()?.toList()?.filter {
