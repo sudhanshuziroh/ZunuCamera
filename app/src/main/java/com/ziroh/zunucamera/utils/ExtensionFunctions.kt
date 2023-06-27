@@ -5,7 +5,7 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.provider.Settings
+import android.content.pm.PackageManager
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -28,12 +28,24 @@ fun Context.saveToDrive(filePath: String) {
         )
         this.grantUriPermission("com.ziroh.zunudrive", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         intent.data = uri
-        val appId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        intent.putExtra("app_id", appId)
+        intent.putExtra("app_id", getSHA1Fingerprint(this))
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         startForegroundService(intent)
     } catch (e: Exception) {
         e.printStackTrace()
+    }
+}
+
+@Suppress("DEPRECATION")
+@SuppressLint("PackageManagerGetSignatures")
+private fun getSHA1Fingerprint(context: Context): String {
+    return try {
+        context.packageManager.getPackageInfo(
+            context.packageName,
+            PackageManager.GET_SIGNATURES
+        ).signatures[0].toCharsString()
+    }catch (_: Exception){
+        ""
     }
 }
 
