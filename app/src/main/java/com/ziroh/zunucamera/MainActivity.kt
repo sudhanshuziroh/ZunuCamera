@@ -20,11 +20,14 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.content.PermissionChecker
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.ziroh.zunucamera.databinding.ActivityMainBinding
+import com.ziroh.zunucamera.edit.PhotoEditActivity
+import com.ziroh.zunucamera.edit.VideoEditActivity
 import com.ziroh.zunucamera.utils.AnimationUtils
 import com.ziroh.zunucamera.utils.hideSystemIcons
 import com.ziroh.zunucamera.utils.saveToDrive
@@ -34,7 +37,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.security.NoSuchAlgorithmException
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ExecutorService
@@ -187,11 +189,24 @@ class MainActivity : AppCompatActivity() {
                         onImageSaved(output: ImageCapture.OutputFileResults) {
 
                     //save to drive
-                    saveToDrive(file.path)
+//                    saveToDrive(file.path)
 
                     //show preview
                     binding.imageViewPreview.visibility = View.VISIBLE
                     binding.imageViewPreview.setImageURI(output.savedUri)
+
+
+                    //for testing edit
+                    val uri = FileProvider.getUriForFile(
+                        this@MainActivity,
+                        BuildConfig.APPLICATION_ID + ".provider",
+                        File(file.path)
+                    )
+
+                    Intent(this@MainActivity, PhotoEditActivity::class.java).also {
+                        it.data = uri
+                        startActivity(it)
+                    }
                 }
             }
         )
@@ -243,8 +258,19 @@ class MainActivity : AppCompatActivity() {
                                 file.path,
                                 MediaStore.Images.Thumbnails.MINI_KIND
                             )
-//                            binding.imageViewPreview.visibility = View.VISIBLE
-//                            binding.imageViewPreview.setImageBitmap(bitmap)
+                            binding.imageViewPreview.visibility = View.VISIBLE
+                            binding.imageViewPreview.setImageBitmap(bitmap)
+
+                            val uri = FileProvider.getUriForFile(
+                                this@MainActivity,
+                                BuildConfig.APPLICATION_ID + ".provider",
+                                File(file.path)
+                            )
+
+                            Intent(this@MainActivity, VideoEditActivity::class.java).also {
+                                it.data = uri
+                                startActivity(it)
+                            }
                         } else {
                             recording?.close()
                             recording = null
@@ -438,7 +464,7 @@ class MainActivity : AppCompatActivity() {
         binding.imageViewCameraSwitch.isEnabled = !isRecording
         binding.constraintLayoutCameraMode.isEnabled = !isRecording
 
-        if(selectedCameraMode == CameraMode.PHOTO) {
+        if (selectedCameraMode == CameraMode.PHOTO) {
             binding.imageViewPreview.isVisible = !isRecording
         }
 
@@ -483,6 +509,13 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode == 1) {
+
         }
     }
 }
