@@ -6,6 +6,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.util.DisplayMetrics
+import android.view.View
+import android.view.WindowManager
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -49,13 +52,17 @@ private fun getSHA1Fingerprint(context: Context): String {
     }
 }
 
-fun Activity.hideSystemIcons() {
-    val windowInsetsController =
-        WindowCompat.getInsetsController(window, window.decorView)
-    windowInsetsController.systemBarsBehavior =
-        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-    window.decorView.setOnApplyWindowInsetsListener { view, windowInsets ->
-        windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
-        view.onApplyWindowInsets(windowInsets)
+fun Activity.hideSystemUI(view: View) {
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    WindowInsetsControllerCompat(window, view).let { controller ->
+        controller.hide(WindowInsetsCompat.Type.systemBars())
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
+}
+
+fun Context.getDisplayMetrics(context: Context): DisplayMetrics {
+    val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    val displayMetrics = DisplayMetrics()
+    windowManager.defaultDisplay.getMetrics(displayMetrics)
+    return displayMetrics
 }

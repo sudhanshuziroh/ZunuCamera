@@ -7,4 +7,6 @@
     <string name="zoom_2x">2X</string>
     <string name="zoom_1x">1X</string>
     <string name="recording_time_initial">00:00:00</string>
+    <!-- TODO: Remove or change this placeholder text -->
+    <string name="hello_blank_fragment">Hello blank fragment</string>
 </resources>

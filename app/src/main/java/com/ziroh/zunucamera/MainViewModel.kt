@@ -17,6 +17,17 @@ class MainViewModel : ViewModel() {
         _selectedCameraMode.value = mode
     }
 
+    private val _selectedAspectRatio = MutableStateFlow(AspectRatio.RATIO_16_9)
+    val selectedAspectRatio: StateFlow<AspectRatio> = _selectedAspectRatio
+
+    fun setAspectRatio() {
+        _selectedAspectRatio.value = if(_selectedAspectRatio.value == AspectRatio.RATIO_16_9){
+            AspectRatio.RATIO_4_3
+        }else{
+            AspectRatio.RATIO_16_9
+        }
+    }
+
     fun clearFiles(context: Context) {
         viewModelScope.launch(Dispatchers.IO) {
             context.filesDir.listFiles()?.toList()?.filter {
