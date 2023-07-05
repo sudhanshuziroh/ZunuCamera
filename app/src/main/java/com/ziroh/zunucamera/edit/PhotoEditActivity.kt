@@ -18,13 +18,13 @@ import ly.img.android.pesdk.assets.sticker.emoticons.StickerPackEmoticons
 import ly.img.android.pesdk.assets.sticker.shapes.StickerPackShapes
 import ly.img.android.pesdk.backend.model.EditorSDKResult
 import ly.img.android.pesdk.backend.model.state.LoadSettings
+import ly.img.android.pesdk.backend.model.state.PhotoEditorSaveSettings
 import ly.img.android.pesdk.ui.activity.PhotoEditorBuilder
 import ly.img.android.pesdk.ui.model.state.UiConfigFrame
 import ly.img.android.pesdk.ui.model.state.UiConfigOverlay
 import ly.img.android.pesdk.ui.model.state.UiConfigSticker
 import ly.img.android.pesdk.ui.model.state.UiConfigText
 import ly.img.android.pesdk.ui.panels.item.PersonalStickerAddItem
-
 @Suppress("DEPRECATION")
 class PhotoEditActivity : AppCompatActivity() {
 
@@ -58,6 +58,8 @@ class PhotoEditActivity : AppCompatActivity() {
                     StickerPackEmoticons.getStickerCategory(),
                     StickerPackShapes.getStickerCategory()
                 )
+            }.configure<PhotoEditorSaveSettings> {
+                it.jpegQuality = 95
             }
 
     private fun openEditor(inputImage: Uri?) {

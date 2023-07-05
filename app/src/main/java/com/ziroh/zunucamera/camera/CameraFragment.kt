@@ -457,6 +457,7 @@ class CameraFragment : Fragment() {
             imageCapture = ImageCapture
                 .Builder()
                 .setTargetAspectRatio(aspectRatio)
+                .setTargetRotation(rotation)
                 .setFlashMode(flashMode)
                 .build()
 
