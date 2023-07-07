@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.ziroh.zunucamera.utils.FileUtils
@@ -40,6 +41,12 @@ class VideoEditActivity: AppCompatActivity() {
         uri?.let {
             openEditor(it)
         }
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                finish()
+            }
+        })
     }
 
     private fun createVESDKSettingsList() =
@@ -65,7 +72,7 @@ class VideoEditActivity: AppCompatActivity() {
                 )
             }
 
-    private fun openEditor(inputSource: Uri?) {
+    private fun openEditor(inputSource: Uri) {
         val settingsList = createVESDKSettingsList()
 
         settingsList.configure<LoadSettings> {

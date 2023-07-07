@@ -3,7 +3,9 @@ package com.ziroh.zunucamera
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -17,24 +19,15 @@ class MainViewModel : ViewModel() {
         _selectedCameraMode.value = mode
     }
 
-    private val _selectedAspectRatio = MutableStateFlow(AspectRatio.RATIO_16_9)
-    val selectedAspectRatio: StateFlow<AspectRatio> = _selectedAspectRatio
-
-    fun setAspectRatio() {
-        _selectedAspectRatio.value = if(_selectedAspectRatio.value == AspectRatio.RATIO_16_9){
-            AspectRatio.RATIO_4_3
-        }else{
-            AspectRatio.RATIO_16_9
-        }
-    }
-
     fun clearFiles(context: Context) {
         viewModelScope.launch(Dispatchers.IO) {
             context.filesDir.listFiles()?.toList()?.filter {
-                it.name != "profileInstalled"
+                it.name != "profileInstalled" && !it.isDirectory
             }?.map {
               it.delete()
             }
+
+            context.cacheDir.delete()
         }
     }
 }

@@ -3,41 +3,40 @@ package com.ziroh.zunucamera.camera
 import TimerManager
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.hardware.display.DisplayManager
+import android.graphics.Point
 import android.media.ThumbnailUtils
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.util.Size
 import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.camera.core.AspectRatio
-import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCapture.FLASH_MODE_AUTO
+import androidx.camera.core.ImageCapture.FLASH_MODE_OFF
+import androidx.camera.core.ImageCapture.FLASH_MODE_ON
 import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.video.FallbackStrategy
-import androidx.camera.video.FileOutputOptions
-import androidx.camera.video.Quality
-import androidx.camera.video.QualitySelector
-import androidx.camera.video.Recorder
-import androidx.camera.video.Recording
-import androidx.camera.video.VideoCapture
-import androidx.camera.video.VideoRecordEvent
+import androidx.camera.view.CameraController
+import androidx.camera.view.CameraController.IMAGE_CAPTURE
+import androidx.camera.view.CameraController.VIDEO_CAPTURE
+import androidx.camera.view.LifecycleCameraController
+import androidx.camera.view.video.OnVideoSavedCallback
+import androidx.camera.view.video.OutputFileOptions
+import androidx.camera.view.video.OutputFileResults
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import androidx.core.content.PermissionChecker
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -49,10 +48,8 @@ import com.ziroh.zunucamera.databinding.FragmentCameraBinding
 import com.ziroh.zunucamera.edit.PhotoEditActivity
 import com.ziroh.zunucamera.edit.VideoEditActivity
 import com.ziroh.zunucamera.utils.AnimationUtils
-import com.ziroh.zunucamera.utils.saveToDrive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -66,25 +63,15 @@ import kotlin.time.Duration.Companion.seconds
 @Suppress("DEPRECATION")
 class CameraFragment : Fragment() {
 
-    private val displayManager by lazy {
-        requireContext().getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-    }
-
     private var _binding: FragmentCameraBinding? = null
     private val binding get() = _binding!!
-
 
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var timerManager: TimerManager
 
-    private var imageCapture: ImageCapture? = null
-    private var videoCapture: VideoCapture<Recorder>? = null
-    private var recording: Recording? = null
-
-    private var cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
     private var zoomSelector = 1f
-    private var flashMode = ImageCapture.FLASH_MODE_AUTO
-    private lateinit var selectedAspectRatio: com.ziroh.zunucamera.AspectRatio
+    private var flashMode = FLASH_MODE_AUTO
+    private var selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_FULL_SCREEN
 
     private lateinit var viewModel: MainViewModel
 
@@ -99,22 +86,18 @@ class CameraFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         viewModel = ViewModelProvider(requireActivity())[MainViewModel::class.java]
-        viewModel.clearFiles(requireContext())
         binding.viewFinder.post {
-            displayId = binding.viewFinder.display.displayId
-
             lifecycleScope.launch {
                 initUI()
                 setClickListeners()
             }
         }
-        displayManager.registerDisplayListener(displayListener, null)
-        observeEvents()
     }
 
+    @androidx.annotation.OptIn(androidx.camera.view.video.ExperimentalVideo::class)
     private fun setClickListeners() {
         binding.imageViewAspectRatio.setOnClickListener {
-            viewModel.setAspectRatio()
+            switchAspectRatio()
         }
         binding.imageViewFlashMode.setOnClickListener {
             switchFlash()
@@ -132,18 +115,20 @@ class CameraFragment : Fragment() {
                     delay(100.milliseconds)
                     binding.layoutShutter.visibility = View.GONE
                 }
-                takePhoto()
+                controller.setEnabledUseCases(IMAGE_CAPTURE)
+                captureImage()
             } else {
-                captureVideo()
+                controller.setEnabledUseCases(VIDEO_CAPTURE)
+                captureNewVideo()
             }
         }
 
         binding.buttonPhotos.setOnClickListener {
-            viewModel.setCameraMode(CameraMode.PHOTO)
+            switchCameraMode(CameraMode.PHOTO)
         }
 
         binding.buttonVideo.setOnClickListener {
-            viewModel.setCameraMode(CameraMode.VIDEO)
+            switchCameraMode(CameraMode.VIDEO)
         }
 
         binding.textViewZoom.setOnClickListener {
@@ -173,27 +158,62 @@ class CameraFragment : Fragment() {
         }
     }
 
-    private fun observeEvents() {
-        viewLifecycleOwner.lifecycleScope.launch {
-            viewModel.selectedEmailProvider.collectLatest {
-                switchCameraMode(it)
-            }
-        }
+    private fun switchAspectRatio() {
+        val (width, height) = requireActivity().windowManager.currentDeviceRealSize()
+        if (selectedCameraMode == CameraMode.PHOTO) {
+            when (selectedAspectRatio) {
+                com.ziroh.zunucamera.AspectRatio.RATIO_16_9 -> {
+                    controller.imageCaptureTargetSize = CameraController.OutputSize(
+                        Size(
+                            width,
+                            height
+                        )
+                    )
+                    selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_FULL_SCREEN
 
-        viewLifecycleOwner.lifecycleScope.launch {
-            viewModel.selectedAspectRatio.collectLatest {
-                if(this@CameraFragment::selectedAspectRatio.isInitialized) {
-                    switchAspectRatio(it)
-                }else{
+                    /**
+                    replace icon
+                     */
+                    binding.imageViewAspectRatio.setImageResource(R.drawable.ic_aspect_full)
+                }
+
+                com.ziroh.zunucamera.AspectRatio.RATIO_FULL_SCREEN -> {
+                    controller.imageCaptureTargetSize =
+                        CameraController.OutputSize(AspectRatio.RATIO_4_3)
+                    selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_4_3
+                    binding.imageViewAspectRatio.setImageResource(R.drawable.ic_4_3)
+                }
+
+                com.ziroh.zunucamera.AspectRatio.RATIO_1_1 -> {
+
+                }
+
+                else -> {
+                    controller.imageCaptureTargetSize =
+                        CameraController.OutputSize(AspectRatio.RATIO_16_9)
                     selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_16_9
+                    binding.imageViewAspectRatio.setImageResource(R.drawable.ic_16_9)
                 }
             }
-        }
-    }
+        }else{
+            when (selectedAspectRatio) {
+                com.ziroh.zunucamera.AspectRatio.RATIO_16_9 -> {
+                    controller.imageCaptureTargetSize =
+                        CameraController.OutputSize(AspectRatio.RATIO_4_3)
+                    selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_4_3
+                    binding.imageViewAspectRatio.setImageResource(R.drawable.ic_4_3)
+                }
 
-    private fun switchAspectRatio(aspectRatio: com.ziroh.zunucamera.AspectRatio) {
-        selectedAspectRatio = aspectRatio
-        bindCameraUseCase()
+                com.ziroh.zunucamera.AspectRatio.RATIO_4_3 -> {
+                    controller.imageCaptureTargetSize =
+                        CameraController.OutputSize(AspectRatio.RATIO_16_9)
+                    selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_16_9
+                    binding.imageViewAspectRatio.setImageResource(R.drawable.ic_16_9)
+                }
+
+                else -> Unit
+            }
+        }
     }
 
     private var selectedCameraMode = CameraMode.PHOTO
@@ -202,16 +222,37 @@ class CameraFragment : Fragment() {
     private fun switchCameraMode(mode: CameraMode) {
         selectedCameraMode = mode
         if (mode == CameraMode.PHOTO) {
+            flashMode = FLASH_MODE_AUTO
+            controller.imageCaptureFlashMode = FLASH_MODE_AUTO
+            binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_auto)
+
             binding.buttonPhotos.setBackgroundResource(R.drawable.selected_mode_background)
             binding.buttonVideo.setBackgroundResource(R.drawable.unselected_mode_background)
+            binding.imageCaptureButton.setImageResource(R.drawable.shutter_icon_selector)
+
             binding.buttonPhotos.setTextColor(Color.WHITE)
             binding.buttonVideo.setTextColor(Color.WHITE)
-            binding.imageCaptureButton.setImageResource(R.drawable.shutter_icon_selector)
-            binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_auto)
-            imageCapture?.camera?.cameraControl?.enableTorch(false)
+
+            controller.enableTorch(false)
             binding.imageViewPreview.visibility = View.VISIBLE
             binding.timerLayout.isVisible = false
+
+            val (width, height) = requireActivity().windowManager.currentDeviceRealSize()
+            controller.imageCaptureTargetSize = CameraController.OutputSize(
+                Size(
+                    width,
+                    height
+                )
+            )
+            selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_FULL_SCREEN
+
+            /**
+            replace icon
+             */
+            binding.imageViewAspectRatio.setImageResource(R.drawable.ic_16_9)
         } else {
+            flashMode = FLASH_MODE_OFF
+            controller.imageCaptureFlashMode = FLASH_MODE_OFF
             binding.buttonPhotos.setBackgroundResource(R.drawable.unselected_mode_background)
             binding.buttonVideo.setBackgroundResource(R.drawable.selected_mode_background)
             binding.buttonVideo.setTextColor(Color.WHITE)
@@ -220,186 +261,113 @@ class CameraFragment : Fragment() {
             binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_off)
             binding.imageViewPreview.visibility = View.GONE
             binding.timerLayout.isVisible = true
+
+
+            //set aspect ratio to 16_9
+            controller.imageCaptureTargetSize =
+                CameraController.OutputSize(AspectRatio.RATIO_16_9)
+            selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_16_9
+            binding.imageViewAspectRatio.setImageResource(R.drawable.ic_16_9)
         }
     }
 
+    private var isRecording = false
 
-
-    private fun takePhoto() {
-        // Get a stable reference of the modifiable image capture use case
-        val imageCapture = imageCapture ?: return
+    @androidx.annotation.OptIn(androidx.camera.view.video.ExperimentalVideo::class)
+    private fun captureNewVideo() {
+        if (isRecording) {
+            controller.stopRecording()
+            isRecording = false
+        }
 
         val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US)
             .format(System.currentTimeMillis())
-        val file = File(requireActivity().filesDir, "${name}.jpeg")
+        val file = File(requireActivity().filesDir, "${name}.mp4")
+        val outputOptions = OutputFileOptions.builder(file).build()
 
-        val outputOptions = ImageCapture.OutputFileOptions
-            .Builder(file)
-            .build()
-
-        imageCapture.takePicture(
+        controller.startRecording(
             outputOptions,
             ContextCompat.getMainExecutor(requireContext()),
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onError(exc: ImageCaptureException) {
-                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
-                }
-
-                override fun
-                        onImageSaved(output: ImageCapture.OutputFileResults) {
-
-                    //save to drive
-//                    saveToDrive(file.path)
+            object : OnVideoSavedCallback {
+                override fun onVideoSaved(outputFileResults: OutputFileResults) {
+                    setVideoRecordingUI(false)
+                    isRecording = false
+//                    requireActivity().saveToDrive(file.path)
 
                     //show preview
+                    val bitmap = ThumbnailUtils.createVideoThumbnail(
+                        file.path,
+                        MediaStore.Images.Thumbnails.MINI_KIND
+                    )
                     binding.imageViewPreview.visibility = View.VISIBLE
-                    binding.imageViewPreview.setImageURI(output.savedUri)
+                    binding.imageViewPreview.setImageBitmap(bitmap)
 
-
-                    //for testing edit
                     val uri = FileProvider.getUriForFile(
                         requireContext(),
                         BuildConfig.APPLICATION_ID + ".provider",
                         File(file.path)
                     )
 
-                    Intent(requireContext(), PhotoEditActivity::class.java).also {
-                        it.data = uri
-                        startActivity(it)
-                    }
+
+                    val intent = Intent(requireContext(), VideoEditActivity::class.java)
+                    intent.data = uri
+                    startActivity(intent)
                 }
+
+                override fun onError(videoCaptureError: Int, message: String, cause: Throwable?) {
+                    controller.stopRecording()
+                    isRecording = false
+                }
+
             }
         )
+        isRecording = true
+        setVideoRecordingUI(true)
     }
 
-    private var isRecording = false
-    private fun captureVideo() {
-        val videoCapture = this.videoCapture ?: return
-
-        val curRecording = recording
-        if (curRecording != null) {
-            // Stop the current recording session.
-            curRecording.stop()
-            recording = null
-            return
-        }
-
-        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US)
-            .format(System.currentTimeMillis())
-        val file = File(requireActivity().filesDir, "${name}.mp4")
-        val outputFileOptions = FileOutputOptions.Builder(file).build()
-
-        recording = videoCapture.output
-            .prepareRecording(requireContext(), outputFileOptions)
-            .apply {
-                if (PermissionChecker.checkSelfPermission(
-                        requireContext(),
-                        Manifest.permission.RECORD_AUDIO
-                    ) ==
-                    PermissionChecker.PERMISSION_GRANTED
-                ) {
-                    withAudioEnabled()
-                }
-            }
-            .start(ContextCompat.getMainExecutor(requireContext())) { recordEvent ->
-                when (recordEvent) {
-                    is VideoRecordEvent.Start -> {
-                        setVideoRecordingUI(true)
-                    }
-
-                    is VideoRecordEvent.Finalize -> {
-                        setVideoRecordingUI(false)
-                        if (!recordEvent.hasError()) {
-                            //saved successfully.
-                            requireActivity().saveToDrive(file.path)
-
-                            //show preview
-                            val bitmap = ThumbnailUtils.createVideoThumbnail(
-                                file.path,
-                                MediaStore.Images.Thumbnails.MINI_KIND
-                            )
-                            binding.imageViewPreview.visibility = View.VISIBLE
-                            binding.imageViewPreview.setImageBitmap(bitmap)
-
-                            val uri = FileProvider.getUriForFile(
-                                requireContext(),
-                                BuildConfig.APPLICATION_ID + ".provider",
-                                File(file.path)
-                            )
-
-                            Intent(requireContext(), VideoEditActivity::class.java).also {
-                                it.data = uri
-                                startActivity(it)
-                            }
-                        } else {
-                            recording?.close()
-                            recording = null
-                            Log.e(
-                                TAG, "Video capture ends with error: " +
-                                        "${recordEvent.error}"
-                            )
-                        }
-                    }
-                }
-            }
-    }
-
-    private fun startCamera() {
-        bindCameraUseCase()
-    }
-
-    private var videoFlashOn = false
 
     @SuppressLint("RestrictedApi")
     private fun switchFlash() {
         if (selectedCameraMode == CameraMode.PHOTO) {
             when (flashMode) {
-                ImageCapture.FLASH_MODE_AUTO -> {
-                    flashMode = ImageCapture.FLASH_MODE_ON
+                FLASH_MODE_AUTO -> {
+                    flashMode = FLASH_MODE_ON
+                    controller.imageCaptureFlashMode = FLASH_MODE_ON
                     binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_on)
                 }
 
-                ImageCapture.FLASH_MODE_ON -> {
-                    flashMode = ImageCapture.FLASH_MODE_OFF
+                FLASH_MODE_ON -> {
+                    flashMode = FLASH_MODE_OFF
+                    controller.imageCaptureFlashMode = FLASH_MODE_OFF
                     binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_off)
                 }
 
                 else -> {
-                    flashMode = ImageCapture.FLASH_MODE_AUTO
+                    flashMode = FLASH_MODE_AUTO
+                    controller.imageCaptureFlashMode = FLASH_MODE_AUTO
                     binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_auto)
                 }
             }
-            bindCameraUseCase()
         } else if (selectedCameraMode == CameraMode.VIDEO) {
-            if (videoFlashOn) {
-                imageCapture?.camera?.cameraControl?.enableTorch(false)
+            flashMode = if (flashMode == FLASH_MODE_ON) {
+                controller.enableTorch(false)
                 binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_off)
+                FLASH_MODE_OFF
             } else {
-                imageCapture?.camera?.cameraControl?.enableTorch(true)
+                controller.enableTorch(true)
                 binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_on)
+                FLASH_MODE_ON
             }
-            videoFlashOn = !videoFlashOn
         }
-    }
-
-    private var displayId: Int = -1
-    private val displayListener = object : DisplayManager.DisplayListener {
-        override fun onDisplayAdded(displayId: Int) = Unit
-        override fun onDisplayRemoved(displayId: Int) = Unit
-        override fun onDisplayChanged(displayId: Int) = view?.let { view ->
-            if (displayId == this@CameraFragment.displayId) {
-                imageCapture?.targetRotation = view.display.rotation
-            }
-        } ?: Unit
     }
 
     private fun switchCamera() {
-        cameraSelector = if (cameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) {
-            CameraSelector.DEFAULT_FRONT_CAMERA
-        } else {
-            CameraSelector.DEFAULT_BACK_CAMERA
-        }
-        bindCameraUseCase()
+        controller.cameraSelector =
+            if (controller.cameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) {
+                CameraSelector.DEFAULT_FRONT_CAMERA
+            } else {
+                CameraSelector.DEFAULT_BACK_CAMERA
+            }
     }
 
     private fun changeZoom() {
@@ -407,70 +375,22 @@ class CameraFragment : Fragment() {
             1f -> {
                 zoomSelector = 2f
                 binding.textViewZoom.text = getString(R.string.zoom_2x)
-                camera.cameraControl.setZoomRatio(2f)
+                controller.setZoomRatio(2f)
             }
 
             2f -> {
                 zoomSelector = 5f
                 binding.textViewZoom.text = getString(R.string.zoom_5x)
-                camera.cameraControl.setZoomRatio(5f)
+                controller.setZoomRatio(5f)
+
             }
 
             else -> {
                 zoomSelector = 1f
                 binding.textViewZoom.text = getString(R.string.zoom_1x)
-                camera.cameraControl.setZoomRatio(1f)
+                controller.setZoomRatio(1f)
             }
         }
-    }
-
-    private lateinit var camera: Camera
-    private fun bindCameraUseCase() {
-        val rotation = binding.viewFinder.display.rotation
-
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
-        val aspectRatio = if(selectedAspectRatio == com.ziroh.zunucamera.AspectRatio.RATIO_16_9){
-            AspectRatio.RATIO_16_9
-        }else{
-            AspectRatio.RATIO_4_3
-        }
-
-        cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-            val preview = Preview.Builder()
-                .setTargetRotation(rotation)
-                .setTargetAspectRatio(aspectRatio)
-                .build()
-                .also {
-                    it.setSurfaceProvider(binding.viewFinder.surfaceProvider)
-                }
-            val recorder = Recorder.Builder()
-                .setQualitySelector(
-                    QualitySelector.from(
-                        Quality.HIGHEST,
-                        FallbackStrategy.higherQualityOrLowerThan(Quality.SD)
-                    )
-                )
-                .build()
-
-            videoCapture = VideoCapture.withOutput(recorder)
-            imageCapture = ImageCapture
-                .Builder()
-                .setTargetAspectRatio(aspectRatio)
-                .setTargetRotation(rotation)
-                .setFlashMode(flashMode)
-                .build()
-
-            try {
-                cameraProvider.unbindAll()
-                camera = cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageCapture, videoCapture
-                )
-            } catch (exc: Exception) {
-                Log.e(TAG, "Use case binding failed", exc)
-            }
-
-        }, ContextCompat.getMainExecutor(requireContext()))
     }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
@@ -483,9 +403,7 @@ class CameraFragment : Fragment() {
         _binding = null
 
         super.onDestroyView()
-
         cameraExecutor.shutdown()
-        displayManager.unregisterDisplayListener(displayListener)
     }
 
     @Deprecated("Deprecated in Java")
@@ -524,6 +442,55 @@ class CameraFragment : Fragment() {
             }.toTypedArray()
     }
 
+    private lateinit var controller: LifecycleCameraController
+    private fun startCamera() {
+        controller = LifecycleCameraController(requireContext())
+        controller.bindToLifecycle((viewLifecycleOwner))
+        binding.viewFinder.controller = controller
+        val (width, height) = requireActivity().windowManager.currentDeviceRealSize()
+        controller.imageCaptureTargetSize = CameraController.OutputSize(
+            Size(
+                width,
+                height
+            )
+        )
+    }
+
+    private fun captureImage() {
+
+        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US)
+            .format(System.currentTimeMillis())
+        val file = File(requireActivity().filesDir, "${name}.jpeg")
+
+        val outputOptions = ImageCapture.OutputFileOptions
+            .Builder(file)
+            .build()
+
+        controller.takePicture(
+            outputOptions,
+            cameraExecutor,
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                    Log.d(TAG, "onImageSaved: ${outputFileResults.savedUri?.path}")
+
+                    val uri = FileProvider.getUriForFile(
+                        requireContext(),
+                        BuildConfig.APPLICATION_ID + ".provider",
+                        File(file.path)
+                    )
+
+                    Intent(requireContext(), PhotoEditActivity::class.java).also {
+                        it.data = uri
+                        startActivity(it)
+                    }
+                }
+
+                override fun onError(exception: ImageCaptureException) {
+                    Log.e(TAG, "onError: ${exception.message}")
+                }
+            }
+        )
+    }
 
     private fun initUI() {
         setPreviewUI()
@@ -584,8 +551,10 @@ class CameraFragment : Fragment() {
                         lastClickedPreview.absolutePath,
                         MediaStore.Images.Thumbnails.MINI_KIND
                     )
-                    binding.imageViewPreview.visibility = View.VISIBLE
-                    binding.imageViewPreview.setImageBitmap(bitmap)
+                    withContext(Dispatchers.Main) {
+                        binding.imageViewPreview.visibility = View.VISIBLE
+                        binding.imageViewPreview.setImageBitmap(bitmap)
+                    }
                 } else {
                     val bitmap = BitmapFactory.decodeFile(lastClickedPreview.absolutePath)
                     withContext(Dispatchers.Main) {
@@ -595,5 +564,19 @@ class CameraFragment : Fragment() {
                 }
             }
         }
+    }
+}
+
+@Suppress("DEPRECATION")
+fun WindowManager.currentDeviceRealSize(): Pair<Int, Int> {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        return Pair(
+            maximumWindowMetrics.bounds.width(),
+            maximumWindowMetrics.bounds.height()
+        )
+    } else {
+        val size = Point()
+        defaultDisplay.getRealSize(size)
+        Pair(size.x, size.y)
     }
 }
