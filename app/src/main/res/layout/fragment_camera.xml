@@ -210,8 +210,8 @@
 
     <TextView
         android:id="@+id/textViewZoom"
-        android:layout_width="35dp"
-        android:layout_height="35dp"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:layout_marginBottom="4dp"
         android:background="@drawable/round_stroke_background"
         android:fontFamily="sans-serif-medium"

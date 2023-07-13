@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.graphics.Point
 import android.media.ThumbnailUtils
 import android.os.Build
 import android.os.Bundle
@@ -18,36 +17,29 @@ import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.widget.Toast
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCapture.FLASH_MODE_AUTO
-import androidx.camera.core.ImageCapture.FLASH_MODE_OFF
-import androidx.camera.core.ImageCapture.FLASH_MODE_ON
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.view.CameraController
-import androidx.camera.view.CameraController.IMAGE_CAPTURE
-import androidx.camera.view.CameraController.VIDEO_CAPTURE
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.video.OnVideoSavedCallback
 import androidx.camera.view.video.OutputFileOptions
 import androidx.camera.view.video.OutputFileResults
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
-import com.ziroh.zunucamera.BuildConfig
 import com.ziroh.zunucamera.CameraMode
 import com.ziroh.zunucamera.MainViewModel
 import com.ziroh.zunucamera.R
 import com.ziroh.zunucamera.databinding.FragmentCameraBinding
-import com.ziroh.zunucamera.edit.PhotoEditActivity
-import com.ziroh.zunucamera.edit.VideoEditActivity
 import com.ziroh.zunucamera.utils.AnimationUtils
+import com.ziroh.zunucamera.utils.currentDeviceRealSize
+import com.ziroh.zunucamera.utils.formatNumber
+import com.ziroh.zunucamera.utils.saveToDrive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -70,10 +62,15 @@ class CameraFragment : Fragment() {
     private lateinit var timerManager: TimerManager
 
     private var zoomSelector = 1f
-    private var flashMode = FLASH_MODE_AUTO
+    private var flashMode = ImageCapture.FLASH_MODE_AUTO
+    private var selectedCameraMode = CameraMode.PHOTO
     private var selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_FULL_SCREEN
+    private var isRecording = false
+
 
     private lateinit var viewModel: MainViewModel
+    private lateinit var controller: LifecycleCameraController
+
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -83,6 +80,7 @@ class CameraFragment : Fragment() {
         return binding.root
     }
 
+    @SuppressLint("SetTextI18n")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         viewModel = ViewModelProvider(requireActivity())[MainViewModel::class.java]
@@ -90,6 +88,11 @@ class CameraFragment : Fragment() {
             lifecycleScope.launch {
                 initUI()
                 setClickListeners()
+
+                controller.zoomState.observe(requireActivity()) {
+                    val zoomRatio = it.zoomRatio.formatNumber()
+                    binding.textViewZoom.text = "${zoomRatio}X"
+                }
             }
         }
     }
@@ -115,11 +118,11 @@ class CameraFragment : Fragment() {
                     delay(100.milliseconds)
                     binding.layoutShutter.visibility = View.GONE
                 }
-                controller.setEnabledUseCases(IMAGE_CAPTURE)
+                controller.setEnabledUseCases(CameraController.IMAGE_CAPTURE)
                 captureImage()
             } else {
-                controller.setEnabledUseCases(VIDEO_CAPTURE)
-                captureNewVideo()
+                controller.setEnabledUseCases(CameraController.VIDEO_CAPTURE)
+                captureVideo()
             }
         }
 
@@ -170,10 +173,6 @@ class CameraFragment : Fragment() {
                         )
                     )
                     selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_FULL_SCREEN
-
-                    /**
-                    replace icon
-                     */
                     binding.imageViewAspectRatio.setImageResource(R.drawable.ic_aspect_full)
                 }
 
@@ -195,7 +194,7 @@ class CameraFragment : Fragment() {
                     binding.imageViewAspectRatio.setImageResource(R.drawable.ic_16_9)
                 }
             }
-        }else{
+        } else {
             when (selectedAspectRatio) {
                 com.ziroh.zunucamera.AspectRatio.RATIO_16_9 -> {
                     controller.imageCaptureTargetSize =
@@ -216,14 +215,13 @@ class CameraFragment : Fragment() {
         }
     }
 
-    private var selectedCameraMode = CameraMode.PHOTO
 
     @SuppressLint("RestrictedApi")
     private fun switchCameraMode(mode: CameraMode) {
         selectedCameraMode = mode
         if (mode == CameraMode.PHOTO) {
-            flashMode = FLASH_MODE_AUTO
-            controller.imageCaptureFlashMode = FLASH_MODE_AUTO
+            flashMode = ImageCapture.FLASH_MODE_AUTO
+            controller.imageCaptureFlashMode = ImageCapture.FLASH_MODE_AUTO
             binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_auto)
 
             binding.buttonPhotos.setBackgroundResource(R.drawable.selected_mode_background)
@@ -245,14 +243,10 @@ class CameraFragment : Fragment() {
                 )
             )
             selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_FULL_SCREEN
-
-            /**
-            replace icon
-             */
-            binding.imageViewAspectRatio.setImageResource(R.drawable.ic_16_9)
+            binding.imageViewAspectRatio.setImageResource(R.drawable.ic_aspect_full)
         } else {
-            flashMode = FLASH_MODE_OFF
-            controller.imageCaptureFlashMode = FLASH_MODE_OFF
+            flashMode = ImageCapture.FLASH_MODE_OFF
+            controller.imageCaptureFlashMode = ImageCapture.FLASH_MODE_OFF
             binding.buttonPhotos.setBackgroundResource(R.drawable.unselected_mode_background)
             binding.buttonVideo.setBackgroundResource(R.drawable.selected_mode_background)
             binding.buttonVideo.setTextColor(Color.WHITE)
@@ -271,10 +265,9 @@ class CameraFragment : Fragment() {
         }
     }
 
-    private var isRecording = false
 
     @androidx.annotation.OptIn(androidx.camera.view.video.ExperimentalVideo::class)
-    private fun captureNewVideo() {
+    private fun captureVideo() {
         if (isRecording) {
             controller.stopRecording()
             isRecording = false
@@ -292,33 +285,13 @@ class CameraFragment : Fragment() {
                 override fun onVideoSaved(outputFileResults: OutputFileResults) {
                     setVideoRecordingUI(false)
                     isRecording = false
-//                    requireActivity().saveToDrive(file.path)
-
-                    //show preview
-                    val bitmap = ThumbnailUtils.createVideoThumbnail(
-                        file.path,
-                        MediaStore.Images.Thumbnails.MINI_KIND
-                    )
-                    binding.imageViewPreview.visibility = View.VISIBLE
-                    binding.imageViewPreview.setImageBitmap(bitmap)
-
-                    val uri = FileProvider.getUriForFile(
-                        requireContext(),
-                        BuildConfig.APPLICATION_ID + ".provider",
-                        File(file.path)
-                    )
-
-
-                    val intent = Intent(requireContext(), VideoEditActivity::class.java)
-                    intent.data = uri
-                    startActivity(intent)
+                    requireActivity().saveToDrive(file.path)
                 }
 
                 override fun onError(videoCaptureError: Int, message: String, cause: Throwable?) {
                     controller.stopRecording()
                     isRecording = false
                 }
-
             }
         )
         isRecording = true
@@ -330,33 +303,33 @@ class CameraFragment : Fragment() {
     private fun switchFlash() {
         if (selectedCameraMode == CameraMode.PHOTO) {
             when (flashMode) {
-                FLASH_MODE_AUTO -> {
-                    flashMode = FLASH_MODE_ON
-                    controller.imageCaptureFlashMode = FLASH_MODE_ON
+                ImageCapture.FLASH_MODE_AUTO -> {
+                    flashMode = ImageCapture.FLASH_MODE_ON
+                    controller.imageCaptureFlashMode = ImageCapture.FLASH_MODE_ON
                     binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_on)
                 }
 
-                FLASH_MODE_ON -> {
-                    flashMode = FLASH_MODE_OFF
-                    controller.imageCaptureFlashMode = FLASH_MODE_OFF
+                ImageCapture.FLASH_MODE_ON -> {
+                    flashMode = ImageCapture.FLASH_MODE_OFF
+                    controller.imageCaptureFlashMode = ImageCapture.FLASH_MODE_OFF
                     binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_off)
                 }
 
                 else -> {
-                    flashMode = FLASH_MODE_AUTO
-                    controller.imageCaptureFlashMode = FLASH_MODE_AUTO
+                    flashMode = ImageCapture.FLASH_MODE_AUTO
+                    controller.imageCaptureFlashMode = ImageCapture.FLASH_MODE_AUTO
                     binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_auto)
                 }
             }
         } else if (selectedCameraMode == CameraMode.VIDEO) {
-            flashMode = if (flashMode == FLASH_MODE_ON) {
+            flashMode = if (flashMode == ImageCapture.FLASH_MODE_ON) {
                 controller.enableTorch(false)
                 binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_off)
-                FLASH_MODE_OFF
+                ImageCapture.FLASH_MODE_OFF
             } else {
                 controller.enableTorch(true)
                 binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_on)
-                FLASH_MODE_ON
+                ImageCapture.FLASH_MODE_ON
             }
         }
     }
@@ -374,20 +347,17 @@ class CameraFragment : Fragment() {
         when (zoomSelector) {
             1f -> {
                 zoomSelector = 2f
-                binding.textViewZoom.text = getString(R.string.zoom_2x)
                 controller.setZoomRatio(2f)
             }
 
             2f -> {
                 zoomSelector = 5f
-                binding.textViewZoom.text = getString(R.string.zoom_5x)
                 controller.setZoomRatio(5f)
 
             }
 
             else -> {
                 zoomSelector = 1f
-                binding.textViewZoom.text = getString(R.string.zoom_1x)
                 controller.setZoomRatio(1f)
             }
         }
@@ -442,7 +412,6 @@ class CameraFragment : Fragment() {
             }.toTypedArray()
     }
 
-    private lateinit var controller: LifecycleCameraController
     private fun startCamera() {
         controller = LifecycleCameraController(requireContext())
         controller.bindToLifecycle((viewLifecycleOwner))
@@ -471,17 +440,14 @@ class CameraFragment : Fragment() {
             cameraExecutor,
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                    Log.d(TAG, "onImageSaved: ${outputFileResults.savedUri?.path}")
+                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                        requireActivity().saveToDrive(file.path)
+                        val bitmap = BitmapFactory.decodeFile(file.absolutePath)
 
-                    val uri = FileProvider.getUriForFile(
-                        requireContext(),
-                        BuildConfig.APPLICATION_ID + ".provider",
-                        File(file.path)
-                    )
-
-                    Intent(requireContext(), PhotoEditActivity::class.java).also {
-                        it.data = uri
-                        startActivity(it)
+                        withContext(Dispatchers.Main) {
+                            binding.imageViewPreview.visibility = View.VISIBLE
+                            binding.imageViewPreview.setImageBitmap(bitmap)
+                        }
                     }
                 }
 
@@ -564,19 +530,5 @@ class CameraFragment : Fragment() {
                 }
             }
         }
-    }
-}
-
-@Suppress("DEPRECATION")
-fun WindowManager.currentDeviceRealSize(): Pair<Int, Int> {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        return Pair(
-            maximumWindowMetrics.bounds.width(),
-            maximumWindowMetrics.bounds.height()
-        )
-    } else {
-        val size = Point()
-        defaultDisplay.getRealSize(size)
-        Pair(size.x, size.y)
     }
 }
