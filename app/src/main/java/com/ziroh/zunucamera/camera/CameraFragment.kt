@@ -5,8 +5,10 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Matrix
 import android.media.ThumbnailUtils
 import android.os.Build
 import android.os.Bundle
@@ -30,6 +32,7 @@ import androidx.camera.view.video.OutputFileResults
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
+import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.ziroh.zunucamera.CameraMode
@@ -45,6 +48,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.ExecutorService
@@ -442,11 +446,15 @@ class CameraFragment : Fragment() {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                     viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                         requireActivity().saveToDrive(file.path)
+
+                        val rotation = getImageOrientation(file.absolutePath)
                         val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+
+                        val rotatedImage = rotateImage(bitmap, rotation)
 
                         withContext(Dispatchers.Main) {
                             binding.imageViewPreview.visibility = View.VISIBLE
-                            binding.imageViewPreview.setImageBitmap(bitmap)
+                            binding.imageViewPreview.setImageBitmap(rotatedImage)
                         }
                     }
                 }
@@ -522,13 +530,39 @@ class CameraFragment : Fragment() {
                         binding.imageViewPreview.setImageBitmap(bitmap)
                     }
                 } else {
+                    val rotation = getImageOrientation(lastClickedPreview.absolutePath)
                     val bitmap = BitmapFactory.decodeFile(lastClickedPreview.absolutePath)
+                    val rotatedImage = rotateImage(bitmap, rotation)
                     withContext(Dispatchers.Main) {
                         binding.imageViewPreview.visibility = View.VISIBLE
-                        binding.imageViewPreview.setImageBitmap(bitmap)
+                        binding.imageViewPreview.setImageBitmap(rotatedImage)
                     }
                 }
             }
         }
+    }
+
+
+   private fun getImageOrientation(imagePath: String?): Int {
+        var rotate = 0
+        try {
+            val exif = ExifInterface(imagePath!!)
+            when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, 1)) {
+                ExifInterface.ORIENTATION_ROTATE_270 -> rotate = 270
+                ExifInterface.ORIENTATION_ROTATE_180 -> rotate = 180
+                ExifInterface.ORIENTATION_ROTATE_90 -> rotate = 90
+            }
+        } catch (e: IOException) {
+            e.printStackTrace()
+        }
+        return rotate
+    }
+
+    private fun rotateImage(img: Bitmap, degree: Int): Bitmap? {
+        val matrix = Matrix()
+        matrix.postRotate(degree.toFloat())
+        val rotatedImg = Bitmap.createBitmap(img, 0, 0, img.width, img.height, matrix, true)
+        img.recycle()
+        return rotatedImg
     }
 }
