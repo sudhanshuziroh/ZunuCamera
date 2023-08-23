@@ -3,19 +3,17 @@ package com.ziroh.zunucamera.camera
 import TimerManager
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Color
-import android.graphics.Matrix
 import android.media.ThumbnailUtils
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import android.util.Size
-import androidx.fragment.app.Fragment
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -26,17 +24,19 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
+import androidx.camera.view.PreviewView
 import androidx.camera.view.video.OnVideoSavedCallback
 import androidx.camera.view.video.OutputFileOptions
 import androidx.camera.view.video.OutputFileResults
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.MarginLayoutParamsCompat
 import androidx.core.view.isVisible
-import androidx.exifinterface.media.ExifInterface
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.ziroh.zunucamera.CameraMode
 import com.ziroh.zunucamera.MainViewModel
+import com.ziroh.zunucamera.PermissionHandler
 import com.ziroh.zunucamera.R
 import com.ziroh.zunucamera.databinding.FragmentCameraBinding
 import com.ziroh.zunucamera.utils.AnimationUtils
@@ -48,7 +48,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.ExecutorService
@@ -56,7 +55,7 @@ import java.util.concurrent.Executors
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-@Suppress("DEPRECATION")
+
 class CameraFragment : Fragment() {
 
     private var _binding: FragmentCameraBinding? = null
@@ -92,11 +91,6 @@ class CameraFragment : Fragment() {
             lifecycleScope.launch {
                 initUI()
                 setClickListeners()
-
-                controller.zoomState.observe(requireActivity()) {
-                    val zoomRatio = it.zoomRatio.formatNumber()
-                    binding.textViewZoom.text = "${zoomRatio}X"
-                }
             }
         }
     }
@@ -151,6 +145,7 @@ class CameraFragment : Fragment() {
                         "com.ziroh.zunudrive.OpenPage",
                         "zunuGallery"
                     )
+                    intent.putExtra("zunu_gallery_file_name", latestPreviewImage?.name)
                     startActivity(intent)
                     viewLifecycleOwner.lifecycleScope.launch {
                         delay(3.seconds)
@@ -177,14 +172,27 @@ class CameraFragment : Fragment() {
                         )
                     )
                     selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_FULL_SCREEN
-                    binding.imageViewAspectRatio.setImageResource(R.drawable.ic_aspect_full)
+                    binding.imageViewAspectRatio.text = getString(R.string.full)
+                    binding.viewFinder.setFinderMargin(requireContext(), true)
                 }
 
                 com.ziroh.zunucamera.AspectRatio.RATIO_FULL_SCREEN -> {
                     controller.imageCaptureTargetSize =
                         CameraController.OutputSize(AspectRatio.RATIO_4_3)
                     selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_4_3
-                    binding.imageViewAspectRatio.setImageResource(R.drawable.ic_4_3)
+                    binding.imageViewAspectRatio.text = getString(R.string._4_3)
+
+                    val layoutParams =
+                        binding.viewFinder.layoutParams as ViewGroup.MarginLayoutParams
+                    val topMargin = dpToPx(requireContext(), 64f)
+
+                    layoutParams.setMargins(
+                        0,
+                        topMargin,
+                        0,
+                        0
+                    )
+                    binding.viewFinder.layoutParams = layoutParams
                 }
 
                 com.ziroh.zunucamera.AspectRatio.RATIO_1_1 -> {
@@ -195,7 +203,9 @@ class CameraFragment : Fragment() {
                     controller.imageCaptureTargetSize =
                         CameraController.OutputSize(AspectRatio.RATIO_16_9)
                     selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_16_9
-                    binding.imageViewAspectRatio.setImageResource(R.drawable.ic_16_9)
+                    binding.imageViewAspectRatio.text = getString(R.string._16_9)
+
+                    binding.viewFinder.setFinderMargin(requireContext(), false)
                 }
             }
         } else {
@@ -204,14 +214,18 @@ class CameraFragment : Fragment() {
                     controller.imageCaptureTargetSize =
                         CameraController.OutputSize(AspectRatio.RATIO_4_3)
                     selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_4_3
-                    binding.imageViewAspectRatio.setImageResource(R.drawable.ic_4_3)
+                    binding.imageViewAspectRatio.text = getString(R.string._4_3)
+
+                    binding.viewFinder.setFinderMargin(requireContext(), false)
                 }
 
                 com.ziroh.zunucamera.AspectRatio.RATIO_4_3 -> {
                     controller.imageCaptureTargetSize =
                         CameraController.OutputSize(AspectRatio.RATIO_16_9)
                     selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_16_9
-                    binding.imageViewAspectRatio.setImageResource(R.drawable.ic_16_9)
+                    binding.imageViewAspectRatio.text = getString(R.string._16_9)
+
+                    binding.viewFinder.setFinderMargin(requireContext(), false)
                 }
 
                 else -> Unit
@@ -228,12 +242,10 @@ class CameraFragment : Fragment() {
             controller.imageCaptureFlashMode = ImageCapture.FLASH_MODE_AUTO
             binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_auto)
 
-            binding.buttonPhotos.setBackgroundResource(R.drawable.selected_mode_background)
-            binding.buttonVideo.setBackgroundResource(R.drawable.unselected_mode_background)
-            binding.imageCaptureButton.setImageResource(R.drawable.shutter_icon_selector)
+            binding.buttonVideo.isActivated = false
+            binding.buttonPhotos.isActivated = true
 
-            binding.buttonPhotos.setTextColor(Color.WHITE)
-            binding.buttonVideo.setTextColor(Color.WHITE)
+            binding.imageCaptureButton.setImageResource(R.drawable.shutter_icon_selector)
 
             controller.enableTorch(false)
             binding.imageViewPreview.visibility = View.VISIBLE
@@ -247,25 +259,27 @@ class CameraFragment : Fragment() {
                 )
             )
             selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_FULL_SCREEN
-            binding.imageViewAspectRatio.setImageResource(R.drawable.ic_aspect_full)
+            binding.imageViewAspectRatio.text = getString(R.string.full)
+
+            binding.viewFinder.setFinderMargin(requireContext(), true)
         } else {
             flashMode = ImageCapture.FLASH_MODE_OFF
             controller.imageCaptureFlashMode = ImageCapture.FLASH_MODE_OFF
-            binding.buttonPhotos.setBackgroundResource(R.drawable.unselected_mode_background)
-            binding.buttonVideo.setBackgroundResource(R.drawable.selected_mode_background)
-            binding.buttonVideo.setTextColor(Color.WHITE)
-            binding.buttonPhotos.setTextColor(Color.WHITE)
             binding.imageCaptureButton.setImageResource(R.drawable.ic_video_mode)
             binding.imageViewFlashMode.setImageResource(R.drawable.ic_flash_off)
             binding.imageViewPreview.visibility = View.GONE
             binding.timerLayout.isVisible = true
 
+            binding.buttonVideo.isActivated = true
+            binding.buttonPhotos.isActivated = false
 
             //set aspect ratio to 16_9
             controller.imageCaptureTargetSize =
                 CameraController.OutputSize(AspectRatio.RATIO_16_9)
             selectedAspectRatio = com.ziroh.zunucamera.AspectRatio.RATIO_16_9
-            binding.imageViewAspectRatio.setImageResource(R.drawable.ic_16_9)
+            binding.imageViewAspectRatio.text = getString(R.string._16_9)
+
+            binding.viewFinder.setFinderMargin(requireContext(), false)
         }
     }
 
@@ -357,7 +371,6 @@ class CameraFragment : Fragment() {
             2f -> {
                 zoomSelector = 5f
                 controller.setZoomRatio(5f)
-
             }
 
             else -> {
@@ -367,37 +380,13 @@ class CameraFragment : Fragment() {
         }
     }
 
-    private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
-        ContextCompat.checkSelfPermission(
-            requireActivity().baseContext, it
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-
     override fun onDestroyView() {
         _binding = null
 
         super.onDestroyView()
-        cameraExecutor.shutdown()
-    }
 
-    @Deprecated("Deprecated in Java")
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_CODE_PERMISSIONS) {
-            if (allPermissionsGranted()) {
-                startCamera()
-            } else {
-                Toast.makeText(
-                    requireContext(),
-                    "Permissions not granted by the user.",
-                    Toast.LENGTH_SHORT
-                ).show()
-                requireActivity().finish()
-            }
+        if (this::cameraExecutor.isInitialized) {
+            cameraExecutor.shutdown()
         }
     }
 
@@ -420,6 +409,7 @@ class CameraFragment : Fragment() {
         controller = LifecycleCameraController(requireContext())
         controller.bindToLifecycle((viewLifecycleOwner))
         binding.viewFinder.controller = controller
+        observeZoomState()
         val (width, height) = requireActivity().windowManager.currentDeviceRealSize()
         controller.imageCaptureTargetSize = CameraController.OutputSize(
             Size(
@@ -427,6 +417,13 @@ class CameraFragment : Fragment() {
                 height
             )
         )
+    }
+
+    private fun observeZoomState() {
+        controller.zoomState.observe(viewLifecycleOwner) {
+            val zoomRatio = it.zoomRatio.formatNumber()
+            binding.textViewZoom.text = "${zoomRatio}X"
+        }
     }
 
     private fun captureImage() {
@@ -445,16 +442,16 @@ class CameraFragment : Fragment() {
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                     viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-                        requireActivity().saveToDrive(file.path)
+                        try {
+                            requireActivity().saveToDrive(file.path)
 
-                        val rotation = getImageOrientation(file.absolutePath)
-                        val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
 
-                        val rotatedImage = rotateImage(bitmap, rotation)
-
-                        withContext(Dispatchers.Main) {
-                            binding.imageViewPreview.visibility = View.VISIBLE
-                            binding.imageViewPreview.setImageBitmap(rotatedImage)
+                            withContext(Dispatchers.Main) {
+                                binding.imageViewPreview.visibility = View.VISIBLE
+                                binding.imageViewPreview.setImageBitmap(bitmap)
+                            }
+                        } catch (_: Exception) {
                         }
                     }
                 }
@@ -467,20 +464,37 @@ class CameraFragment : Fragment() {
     }
 
     private fun initUI() {
-        setPreviewUI()
+        binding.viewFinder.scaleType = PreviewView.ScaleType.FIT_START
+        binding.buttonVideo.isActivated = false
+        binding.buttonPhotos.isActivated = true
+
         timerManager = TimerManager()
         timerManager.setTimerListener(object : TimerManager.TimerListener {
             override fun onTimerTick(elapsedTime: String) {
                 binding.textViewTimer.text = elapsedTime
             }
         })
-        if (allPermissionsGranted()) {
-            startCamera()
-        } else {
-            ActivityCompat.requestPermissions(
-                requireActivity(), REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS
-            )
-        }
+
+        PermissionHandler().requestPermission(
+            requireActivity() as Activity,
+            REQUIRED_PERMISSIONS,
+            REQUEST_CODE_PERMISSIONS,
+            object : PermissionHandler.RequestPermissionListener {
+                override fun onSuccess() {
+                    startCamera()
+                    setPreviewUI()
+                }
+
+                override fun onFailed() {
+                    Toast.makeText(
+                        requireContext(),
+                        "Permissions not granted by the user.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    requireActivity().finish()
+                }
+            }
+        )
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
 
@@ -508,6 +522,7 @@ class CameraFragment : Fragment() {
         }
     }
 
+    private var latestPreviewImage: File? = null
     private fun setPreviewUI() {
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             val cameraPreviewFiles = requireActivity().filesDir.listFiles()?.toList()?.sortedBy {
@@ -530,12 +545,11 @@ class CameraFragment : Fragment() {
                         binding.imageViewPreview.setImageBitmap(bitmap)
                     }
                 } else {
-                    val rotation = getImageOrientation(lastClickedPreview.absolutePath)
+                    latestPreviewImage = lastClickedPreview
                     val bitmap = BitmapFactory.decodeFile(lastClickedPreview.absolutePath)
-                    val rotatedImage = rotateImage(bitmap, rotation)
                     withContext(Dispatchers.Main) {
                         binding.imageViewPreview.visibility = View.VISIBLE
-                        binding.imageViewPreview.setImageBitmap(rotatedImage)
+                        binding.imageViewPreview.setImageBitmap(bitmap)
                     }
                 }
             }
@@ -543,26 +557,47 @@ class CameraFragment : Fragment() {
     }
 
 
-   private fun getImageOrientation(imagePath: String?): Int {
-        var rotate = 0
-        try {
-            val exif = ExifInterface(imagePath!!)
-            when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, 1)) {
-                ExifInterface.ORIENTATION_ROTATE_270 -> rotate = 270
-                ExifInterface.ORIENTATION_ROTATE_180 -> rotate = 180
-                ExifInterface.ORIENTATION_ROTATE_90 -> rotate = 90
-            }
-        } catch (e: IOException) {
-            e.printStackTrace()
-        }
-        return rotate
-    }
+//   private fun getImageOrientation(imagePath: String?): Int {
+//        var rotate = 0
+//        try {
+//            val exif = ExifInterface(imagePath!!)
+//            when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, 1)) {
+//                ExifInterface.ORIENTATION_ROTATE_270 -> rotate = 270
+//                ExifInterface.ORIENTATION_ROTATE_180 -> rotate = 180
+//                ExifInterface.ORIENTATION_ROTATE_90 -> rotate = 90
+//            }
+//        } catch (e: IOException) {
+//            e.printStackTrace()
+//        }
+//        return rotate
+//    }
+//
+//    private fun rotateImage(img: Bitmap, degree: Int): Bitmap? {
+//        val matrix = Matrix()
+//        matrix.postRotate(degree.toFloat())
+//        val rotatedImg = Bitmap.createBitmap(img, 0, 0, img.width, img.height, matrix, true)
+//        img.recycle()
+//        return rotatedImg
+//    }
+}
 
-    private fun rotateImage(img: Bitmap, degree: Int): Bitmap? {
-        val matrix = Matrix()
-        matrix.postRotate(degree.toFloat())
-        val rotatedImg = Bitmap.createBitmap(img, 0, 0, img.width, img.height, matrix, true)
-        img.recycle()
-        return rotatedImg
+fun dpToPx(context: Context, dp: Float): Int {
+    val displayMetrics = context.resources.displayMetrics
+    return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, displayMetrics).toInt()
+}
+
+fun View.setFinderMargin(context: Context, isFull: Boolean) {
+    val layoutParams = this.layoutParams as ViewGroup.MarginLayoutParams
+    val topMargin = if (!isFull) {
+        dpToPx(context, 64f)
+    } else {
+        0
     }
+    layoutParams.setMargins(
+        0,
+        topMargin,
+        0,
+        0
+    )
+    this.layoutParams = layoutParams
 }

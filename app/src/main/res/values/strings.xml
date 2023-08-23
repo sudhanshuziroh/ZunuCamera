@@ -9,4 +9,7 @@
     <string name="recording_time_initial">00:00:00</string>
     <!-- TODO: Remove or change this placeholder text -->
     <string name="hello_blank_fragment">Hello blank fragment</string>
+    <string name="full">Full</string>
+    <string name="_16_9">16:9</string>
+    <string name="_4_3">4:3</string>
 </resources>

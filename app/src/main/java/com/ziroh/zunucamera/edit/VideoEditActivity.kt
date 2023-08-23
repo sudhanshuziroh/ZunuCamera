@@ -6,7 +6,10 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
+import com.ziroh.zunucamera.BuildConfig
+import com.ziroh.zunucamera.R
 import com.ziroh.zunucamera.utils.FileUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,7 +30,9 @@ import ly.img.android.pesdk.ui.model.state.UiConfigFrame
 import ly.img.android.pesdk.ui.model.state.UiConfigOverlay
 import ly.img.android.pesdk.ui.model.state.UiConfigSticker
 import ly.img.android.pesdk.ui.model.state.UiConfigText
+import ly.img.android.pesdk.ui.model.state.UiConfigTheme
 import ly.img.android.pesdk.ui.panels.item.PersonalStickerAddItem
+import java.io.File
 
 @Suppress("DEPRECATION")
 class VideoEditActivity: AppCompatActivity() {
@@ -70,6 +75,8 @@ class VideoEditActivity: AppCompatActivity() {
                     StickerPackShapes.getStickerCategory(),
                     StickerPackAnimated.getStickerCategory()
                 )
+            }.configure<UiConfigTheme> {
+                it.theme = R.style.CustomImglyTheme
             }
 
     private fun openEditor(inputSource: Uri) {
@@ -93,16 +100,23 @@ class VideoEditActivity: AppCompatActivity() {
         intent ?: return
         if (resultCode == RESULT_OK && requestCode == 1) {
             val data = EditorSDKResult(intent)
-
             lifecycleScope.launch {
-                if(uri != null && data.resultUri != null) {
-                    FileUtils.copyUriContent(
-                        destinationUri = uri!!,
-                        sourceUri = data.resultUri!!,
-                        contentResolver = contentResolver
-                    )
-                    withContext(Dispatchers.Main) {
+                if (data.resultUri != null) {
+                    try {
+                        val file = data.resultUri?.path?.let { File(it) }
+                        val uriToSend = FileProvider.getUriForFile(
+                            this@VideoEditActivity,
+                            BuildConfig.APPLICATION_ID + ".provider",
+                            file!!
+                        )
+
+                        val saveIntent = Intent()
+                        saveIntent.data = uriToSend
+                        saveIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        setResult(RESULT_OK, saveIntent)
                         finish()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
             }

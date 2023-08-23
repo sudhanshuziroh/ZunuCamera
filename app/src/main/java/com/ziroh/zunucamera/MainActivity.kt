@@ -1,5 +1,6 @@
 package com.ziroh.zunucamera
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
@@ -24,6 +25,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
+        viewModel.clearFiles(this)
         setContentView(binding.root)
     }
 
@@ -32,5 +34,14 @@ class MainActivity : AppCompatActivity() {
         binding.fragmentContainer.postDelayed({
             this@MainActivity.hideSystemUI(binding.fragmentContainer)
         }, IMMERSIVE_FLAG_TIMEOUT)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        PermissionHandler().onRequestPermissionsResult(requestCode, grantResults)
     }
 }
